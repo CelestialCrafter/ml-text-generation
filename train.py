@@ -1,16 +1,19 @@
 import tensorflow as tf
+
+from keras.models import Sequential
+from keras.layers import Embedding, LSTM, Dense
 from keras.callbacks import EarlyStopping, BackupAndRestore
-from models import RNNModel, OneStep
-from data import get_dataset
+
+from onestep import OneStep
 from generate import generate_text
+from data import get_dataset
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
   tf.config.experimental.set_memory_growth(gpu, True)
 
-dataset, vocab_size, (chars_from_ids, ids_from_chars) = get_dataset()
-
-modelName = input('Model Name:')
+dataset, tokenizer, max_sequence_length = get_dataset()
+total_words = tokenizer.num_words
 
 BATCH_SIZE = 64
 BUFFER_SIZE = 10000
@@ -22,30 +25,31 @@ dataset = (
 		.prefetch(tf.data.experimental.AUTOTUNE)
 )
 
-embedding_dim = 256
-rnn_units = 512
-epochs = 20
-model = RNNModel(vocab_size=vocab_size, embedding_dim=embedding_dim, rnn_units=rnn_units)
+model_name = input('Model Name: ')
+input_text = input('Input Text: ')
 
-for input_example_batch, target_example_batch in dataset.take(1):
-	example_batch_predictions = model(input_example_batch)
-	print(example_batch_predictions.shape, "# (batch_size, sequence_length, vocab_size)")
+epochs = 100
 
+model = Sequential()
+model.add(Embedding(total_words, 1))
+model.add(LSTM(1))
+model.add(Dense(total_words, activation='softmax'))
+
+model.build()
 model.summary()
 
-loss = tf.losses.SparseCategoricalCrossentropy(from_logits=True)
-model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
-
-model.fit(
+model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+history = model.fit(
 	dataset,
 	epochs=epochs,
 	callbacks=[
-		EarlyStopping(monitor='loss', patience=2),
-		BackupAndRestore(backup_dir=f'./models/checkpoint_{modelName}')
-	]
+		EarlyStopping(monitor='accuracy', patience=1),
+		BackupAndRestore(backup_dir=f'./models/checkpoint_{model_name}')
+	]	
 )
 
-one_step_model = OneStep(model, chars_from_ids, ids_from_chars)
-print(generate_text(one_step_model, 'I', 1000))
+one_step_model = OneStep(model, tokenizer, max_sequence_length)
 
-tf.saved_model.save(one_step_model, f'models/{modelName}')
+print(f'\n{generate_text(one_step_model, input_text, 100)}\n')
+
+tf.saved_model.save(one_step_model, f'models/{model_name}')
