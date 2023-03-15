@@ -1,19 +1,17 @@
 import tensorflow as tf
 
-from keras.models import Sequential
-from keras.layers import Embedding, LSTM, Dense
 from keras.callbacks import EarlyStopping, BackupAndRestore
 
-from onestep import OneStep
+from models import OneStep, RNNModel
 from generate import generate_text
 from data import get_dataset
+from callbacks import TextGenerationCallback
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
-  tf.config.experimental.set_memory_growth(gpu, True)
+	tf.config.experimental.set_memory_growth(gpu, True)
 
-dataset, tokenizer, max_sequence_length = get_dataset()
-total_words = tokenizer.num_words
+dataset, vocab_size, ids_from_chars, chars_from_ids = get_dataset()
 
 BATCH_SIZE = 64
 BUFFER_SIZE = 10000
@@ -30,13 +28,8 @@ input_text = input('Input Text: ')
 
 epochs = 100
 
-model = Sequential()
-model.add(Embedding(total_words, 1))
-model.add(LSTM(1))
-model.add(Dense(total_words, activation='softmax'))
-
-model.build()
-model.summary()
+model = RNNModel(vocab_size, 1024, 1024)
+onestep = OneStep(model, chars_from_ids, ids_from_chars)
 
 model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 history = model.fit(
@@ -44,12 +37,12 @@ history = model.fit(
 	epochs=epochs,
 	callbacks=[
 		EarlyStopping(monitor='accuracy', patience=1),
-		BackupAndRestore(backup_dir=f'./models/checkpoint_{model_name}')
-	]	
+		BackupAndRestore(backup_dir=f'./models/checkpoint_{model_name}'),
+		TextGenerationCallback(onestep)
+	]
 )
 
-one_step_model = OneStep(model, tokenizer, max_sequence_length)
 
-print(f'\n{generate_text(one_step_model, input_text, 100)}\n')
+print(f'\n{generate_text(onestep, input_text, 100)}\n')
 
-tf.saved_model.save(one_step_model, f'models/{model_name}')
+tf.saved_model.save(onestep, f'models/{model_name}')
