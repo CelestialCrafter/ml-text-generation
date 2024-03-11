@@ -1,4 +1,4 @@
-# tensorflow-rnn
+# ml-text-generation
 
 Simple RNN that I made for fun
 
